@@ -533,9 +533,13 @@ class PanelButton extends PanelMenu.Button {
         }
         if (this.menuLabelTitle != null) {
             this.menuLabels.remove_child(this.menuLabelTitle);
+            this.menuLabelTitle.destroy();
+            this.menuLabelTitle = null;
         }
         if (this.menuLabelSubtitle != null) {
             this.menuLabels.remove_child(this.menuLabelSubtitle);
+            this.menuLabelSubtitle.destroy();
+            this.menuLabelSubtitle = null;
         }
         const width = this.extension.labelWidth > 0 ? this.getMenuItemWidth() : 0;
         this.menuLabelTitle = new ScrollingLabel({
@@ -722,7 +726,14 @@ class PanelButton extends PanelMenu.Button {
             initPaused: this.playerProxy.playbackStatus !== PlaybackStatus.PLAYING,
         });
         if (this.buttonLabel?.get_parent() === this.buttonBox) {
-            this.buttonBox.replace_child(this.buttonLabel, label);
+            const oldLabel = this.buttonLabel;
+            // Stop scrolling BEFORE removing from stage to prevent animation errors
+            if (oldLabel.pauseScrolling) {
+                oldLabel.pauseScrolling();
+            }
+            this.buttonBox.replace_child(oldLabel, label);
+            // Destroy old label to clean up animations
+            oldLabel.destroy();
         } else {
             this.buttonBox.insert_child_at_index(label, index);
         }
@@ -901,13 +912,13 @@ class PanelButton extends PanelMenu.Button {
             this.updateWidgets(WidgetFlags.PANEL_CONTROLS_PLAYPAUSE | WidgetFlags.MENU_CONTROLS_PLAYPAUSE);
             if (this.playerProxy.playbackStatus !== PlaybackStatus.PLAYING) {
                 this.buttonLabel?.pauseScrolling();
-                this.menuLabelTitle.pauseScrolling();
-                this.menuLabelSubtitle.pauseScrolling();
+                this.menuLabelTitle?.pauseScrolling();
+                this.menuLabelSubtitle?.pauseScrolling();
                 this.menuSlider?.pauseTransition();
             } else {
                 this.buttonLabel?.resumeScrolling();
-                this.menuLabelTitle.resumeScrolling();
-                this.menuLabelSubtitle.resumeScrolling();
+                this.menuLabelTitle?.resumeScrolling();
+                this.menuLabelSubtitle?.resumeScrolling();
                 this.menuSlider?.resumeTransition();
             }
         });

@@ -99,7 +99,7 @@ class ScrollingLabel extends St.ScrollView {
             yAlign: Clutter.ActorAlign.CENTER,
             xAlign: Clutter.ActorAlign.START,
         });
-        this.onShowChangedId = this.label.connect("show", this.onShowChanged.bind(this));
+        this.onShowChangedId = this.label.connect("notify::mapped", this.onShowChanged.bind(this));
         this.box.add_child(this.label);
         this.add_child(this.box);
     }
@@ -181,7 +181,8 @@ class ScrollingLabel extends St.ScrollView {
      * @returns {void}
      */
     onShowChanged() {
-        if (this.label.visible === false) {
+        // Only proceed when widget is mapped (visible and in stage)
+        if (!this.label.mapped) {
             return;
         }
         const isLabelWider = this.label.width > this.labelWidth && this.labelWidth > 0;
@@ -195,7 +196,10 @@ class ScrollingLabel extends St.ScrollView {
         } else if (isLabelWider) {
             this.box.width = Math.min(this.label.width, this.labelWidth);
         }
-        this.label.disconnect(this.onShowChangedId);
+        if (this.onShowChangedId) {
+            this.label.disconnect(this.onShowChangedId);
+            this.onShowChangedId = null;
+        }
     }
 
     /**
