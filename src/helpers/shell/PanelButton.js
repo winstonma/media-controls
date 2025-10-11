@@ -722,8 +722,13 @@ class PanelButton extends PanelMenu.Button {
             isScrolling: this.extension.scrollLabels,
             initPaused: this.playerProxy.playbackStatus !== PlaybackStatus.PLAYING,
         });
+
+        // Clean up old label before replacing
         if (this.buttonLabel?.get_parent() === this.buttonBox) {
-            this.buttonBox.replace_child(this.buttonLabel, label);
+            const oldLabel = this.buttonLabel;
+            this.buttonLabel = null;
+            oldLabel.destroy();
+            this.buttonBox.insert_child_at_index(label, index);
         } else {
             this.buttonBox.insert_child_at_index(label, index);
             debugLog("Added label");
