@@ -5,9 +5,11 @@ FROM registry.fedoraproject.org/fedora:${fedora_version}
 # Install required packages.
 RUN dnf update -y && \
     dnf --nodocs install -y \
-    gnome-session-xsession gnome-extensions-app xorg-x11-xinit \
-    xorg-x11-server-Xvfb gnome-terminal xdotool xautomation sudo \
-    nodejs npm gettext glib2-devel gnome-shell jq unzip git && \
+    gnome-session gnome-shell gnome-extensions-app \
+    xorg-x11-xinit xorg-x11-server-Xvfb xorg-x11-xauth x11-utils \
+    gnome-terminal xdotool xautomation sudo dbus-x11 \
+    nodejs npm gettext glib2-devel jq unzip git \
+    --skip-unavailable && \
     dnf clean all -y && \
     rm -rf /var/cache/dnf
 
