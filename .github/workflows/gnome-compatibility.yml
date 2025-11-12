@@ -11,35 +11,37 @@ jobs:
   compatibility-check:
     name: Test GNOME ${{ matrix.gnome-version }}
     runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
-        gnome-version: ['48', '49']
+        include:
+          - gnome-version: '48'
+            container: 'fedora:41'
+          - gnome-version: '49'
+            container: 'fedora:rawhide'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
-      - name: Install GNOME Shell dependencies
+      - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          dnf install -y \
+            nodejs \
+            npm \
             gettext \
-            glib-2.0 \
-            libglib2.0-dev \
-            libglib2.0-bin \
-            gnome-shell-common \
-            gnome-shell
+            glib2-devel \
+            gnome-shell \
+            jq \
+            unzip \
+            git
+
+      - name: Install pnpm (in container)
+        run: npm install -g pnpm@9
 
       - name: Install dependencies
         run: pnpm install --ignore-scripts
@@ -82,6 +84,12 @@ jobs:
         run: |
           find dist/temp -name "*.js" -type f -exec node --check {} \;
           echo "✅ All JavaScript files have valid syntax"
+
+      - name: Check GNOME Shell version
+        run: |
+          INSTALLED_VERSION=$(gnome-shell --version | grep -oP '\d+\.\d+' | cut -d. -f1)
+          echo "Installed GNOME Shell version: $INSTALLED_VERSION"
+          echo "Expected GNOME Shell version: ${{ matrix.gnome-version }}"
 
       - name: Summary
         if: success()
