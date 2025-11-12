@@ -91,7 +91,7 @@ jobs:
           echo "Installed GNOME Shell version: $INSTALLED_VERSION"
           echo "Expected GNOME Shell version: ${{ matrix.gnome-version }}"
 
-      - name: Install media player dependencies
+      - name: Install media player and typelib dependencies
         run: |
           dnf install -y \
             mpv \
@@ -101,7 +101,13 @@ jobs:
             mesa-dri-drivers \
             wget \
             mutter \
+            mutter-devel \
             gnome-shell-extension-common
+
+          # Verify typelibs are available
+          echo "Checking for typelib files..."
+          find /usr -name "*Clutter*.typelib" 2>/dev/null || echo "No Clutter typelib found"
+          find /usr -name "*St*.typelib" 2>/dev/null || echo "No St typelib found"
 
       - name: Download sample audio file
         run: |
