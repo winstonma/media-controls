@@ -108,19 +108,47 @@ jobs:
             echo \"Expected GNOME Shell version: ${{ matrix.gnome-version }}\"
           "
 
+      - name: Setup D-Bus and start GNOME Shell
+        run: |
+          docker exec gnome-test-${{ matrix.gnome-version }} bash -c "
+            # Start system D-Bus
+            systemctl start dbus
+            sleep 2
+          "
+
       - name: Start GNOME Shell and test extension
         run: |
           docker exec --user gnomeshell -w /workspace gnome-test-${{ matrix.gnome-version }} bash -c "
             export DISPLAY=:99
+            export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u)/bus
 
             # Wait for X server
             timeout 30 bash -c 'until xdpyinfo >/dev/null 2>&1; do sleep 1; done'
             echo '✅ X server is ready'
 
+            # Create user runtime directory
+            mkdir -p /run/user/\$(id -u)
+
+            # Start user D-Bus session
+            dbus-daemon --session --address=\$DBUS_SESSION_BUS_ADDRESS --nofork --nopidfile --syslog-only &
+            DBUS_PID=\$!
+            sleep 2
+
+            echo '✅ D-Bus session started'
+
             # Start GNOME Shell in background
-            dbus-run-session -- gnome-shell --x11 --wayland=false > /tmp/gnome-shell.log 2>&1 &
+            gnome-shell --x11 --wayland=false > /tmp/gnome-shell.log 2>&1 &
             SHELL_PID=\$!
-            sleep 10
+            sleep 15
+
+            # Check if GNOME Shell started
+            if ! kill -0 \$SHELL_PID 2>/dev/null; then
+              echo '❌ GNOME Shell failed to start'
+              cat /tmp/gnome-shell.log || true
+              exit 1
+            fi
+
+            echo '✅ GNOME Shell started'
 
             # Install extension
             echo 'Installing extension...'
@@ -130,7 +158,7 @@ jobs:
             echo 'Enabling extension...'
             gnome-extensions enable mediacontrols@cliffniff.github.com || echo '⚠️ Could not enable extension'
 
-            # Wait a bit for extension to load
+            # Wait for extension to load
             sleep 5
 
             # List extensions
@@ -148,6 +176,9 @@ jobs:
               echo '⚠️ GNOME Shell process ended'
               cat /tmp/gnome-shell.log || true
             fi
+
+            # Keep processes alive for log collection
+            sleep 5
           " || echo "⚠️ Extension runtime test completed with warnings"
 
       - name: Check for known compatibility issues
