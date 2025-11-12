@@ -2,7 +2,7 @@ name: GNOME Shell Compatibility Check
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, add-gnome-compatibility-ci]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
