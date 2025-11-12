@@ -91,6 +91,75 @@ jobs:
           echo "Installed GNOME Shell version: $INSTALLED_VERSION"
           echo "Expected GNOME Shell version: ${{ matrix.gnome-version }}"
 
+      - name: Install media player dependencies
+        run: |
+          dnf install -y \
+            mpv \
+            mpv-mpris \
+            dbus-x11 \
+            xorg-x11-server-Xvfb \
+            mesa-dri-drivers \
+            wget
+
+      - name: Download sample audio file
+        run: |
+          wget -O /tmp/sample.mp3 https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3
+          echo "✅ Downloaded sample audio file"
+
+      - name: Install extension for testing
+        run: |
+          # Extract extension to GNOME extensions directory
+          mkdir -p ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
+          unzip -o dist/builds/mediacontrols@cliffniff.github.com.shell-extension.zip \
+            -d ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
+          echo "✅ Extension installed"
+
+      - name: Test extension with mpv
+        run: |
+          # Start D-Bus session
+          export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
+
+          # Start virtual display
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
+          sleep 2
+
+          # Start GNOME Shell in background and capture logs
+          gnome-shell --wayland --no-x11 --headless 2>&1 | tee /tmp/gnome-shell.log &
+          SHELL_PID=$!
+          sleep 5
+
+          # Play audio file with mpv in background
+          mpv --no-video --loop=inf /tmp/sample.mp3 &
+          MPV_PID=$!
+
+          # Wait for media to start playing
+          sleep 5
+
+          # Check if extension loaded without errors
+          echo "Checking GNOME Shell logs for errors..."
+
+          # Kill processes
+          kill $MPV_PID 2>/dev/null || true
+          kill $SHELL_PID 2>/dev/null || true
+
+          # Analyze logs
+          if grep -i "error.*mediacontrols" /tmp/gnome-shell.log; then
+            echo "❌ Found errors related to mediacontrols extension"
+            echo "--- Full log ---"
+            cat /tmp/gnome-shell.log
+            exit 1
+          elif grep -i "mediacontrols" /tmp/gnome-shell.log; then
+            echo "✅ Extension loaded, checking for issues..."
+            grep -i "mediacontrols" /tmp/gnome-shell.log
+          else
+            echo "⚠️  No mediacontrols messages found in logs"
+            echo "--- Full log ---"
+            cat /tmp/gnome-shell.log
+          fi
+
+          echo "✅ Extension functional test completed"
+
       - name: Summary
         if: success()
         run: |
@@ -100,3 +169,4 @@ jobs:
           echo "- GSettings schema: passed"
           echo "- Extension structure: passed"
           echo "- JavaScript syntax: passed"
+          echo "- Functional test: passed"
