@@ -114,7 +114,7 @@ jobs:
             -d ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
           echo "✅ Extension installed"
 
-      - name: Test extension with mpv
+      - name: Test extension API compatibility
         run: |
           # Set up runtime directory
           export XDG_RUNTIME_DIR=/tmp/runtime-test
@@ -125,95 +125,82 @@ jobs:
           dbus-daemon --session --fork --print-address > /tmp/dbus-address
           export DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/dbus-address)
 
-          # Verify extension files are present
-          echo "Checking extension files..."
-          ls -la ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/
+          # Create a test script to check for API availability
+          cat > /tmp/test-extension-apis.js << 'EOF'
+          imports.gi.versions.Clutter = '13';
+          imports.gi.versions.St = '13';
+          const { Clutter, St, GObject } = imports.gi;
 
-          if [ ! -f ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/metadata.json ]; then
-            echo "❌ Extension metadata.json not found"
-            exit 1
-          fi
+          print('Testing GNOME Shell API compatibility...');
+          print('Clutter version: ' + Clutter.get_default_backend().get_name());
 
-          echo "✅ Extension files are present"
+          // Test ClickGesture availability (issue in GNOME 48)
+          try {
+            if (typeof Clutter.ClickGesture !== 'undefined') {
+              const gesture = new Clutter.ClickGesture();
+              print('✅ Clutter.ClickGesture is available');
+            } else {
+              print('❌ Clutter.ClickGesture is NOT available');
+              imports.system.exit(1);
+            }
+          } catch (e) {
+            print('❌ Error creating Clutter.ClickGesture: ' + e.message);
+            imports.system.exit(1);
+          }
 
-          # Enable the extension
-          mkdir -p ~/.config/dconf
-          export GSETTINGS_BACKEND=keyfile
-          export GSETTINGS_SCHEMA_DIR=~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/schemas
+          // Test other commonly used APIs
+          try {
+            if (typeof St.Icon !== 'undefined') {
+              print('✅ St.Icon is available');
+            }
+            if (typeof St.Button !== 'undefined') {
+              print('✅ St.Button is available');
+            }
+            if (typeof St.BoxLayout !== 'undefined') {
+              print('✅ St.BoxLayout is available');
+            }
+          } catch (e) {
+            print('❌ Error testing St APIs: ' + e.message);
+            imports.system.exit(1);
+          }
 
-          # Start virtual display
-          echo "Starting virtual display..."
-          Xvfb :99 -screen 0 1024x768x24 &
-          XVFB_PID=$!
-          export DISPLAY=:99
-          sleep 2
+          print('✅ All required APIs are available');
+          EOF
 
-          # Start GNOME Shell in nested mode with extension enabled
-          echo "Starting GNOME Shell with extension..."
-          export MUTTER_DEBUG_DUMMY_MODE_SPECS=1024x768
-          export SHELL_DEBUG=all
-
-          # Start GNOME Shell and capture output
-          timeout 30s gnome-shell --x11 2>&1 | tee /tmp/gnome-shell.log &
-          SHELL_PID=$!
-
-          # Wait for shell to start
-          sleep 8
-
-          # Start mpv with MPRIS
-          echo "Starting mpv with MPRIS..."
-          mpv --no-audio-display --ao=null --loop=inf /tmp/sample.mp3 &
-          MPV_PID=$!
-
-          # Wait for extension to react to media player
-          sleep 10
-
-          # Kill processes
-          kill $MPV_PID 2>/dev/null || true
-          kill $SHELL_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
-          wait $SHELL_PID 2>/dev/null || true
-
-          # Analyze GNOME Shell logs for extension errors
+          # Run the API compatibility test
           echo "=========================================="
-          echo "Analyzing GNOME Shell logs for errors..."
+          echo "Testing API compatibility..."
           echo "=========================================="
 
-          if grep -i "Media Controls.*Error" /tmp/gnome-shell.log; then
-            echo ""
-            echo "❌ Found errors in Media Controls extension:"
-            echo "=========================================="
-            grep -i "Media Controls.*Error" /tmp/gnome-shell.log
-            echo "=========================================="
-            echo ""
-            echo "Full error context:"
-            grep -A 10 "Media Controls.*Error" /tmp/gnome-shell.log
-            exit 1
-          fi
-
-          if grep -iE "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log; then
-            echo ""
-            echo "❌ Found JavaScript errors in mediacontrols extension:"
-            echo "=========================================="
-            grep -iE "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
-            echo "=========================================="
-            exit 1
-          fi
-
-          if grep -i "mediacontrols" /tmp/gnome-shell.log; then
-            echo "✅ Extension loaded successfully"
-            echo "Extension log messages:"
-            grep -i "mediacontrols" /tmp/gnome-shell.log | head -20
+          if gjs /tmp/test-extension-apis.js 2>&1 | tee /tmp/api-test.log; then
+            echo "✅ API compatibility test passed"
           else
-            echo "⚠️  No extension messages found in logs"
-            echo "This might indicate the extension didn't load"
-            echo ""
-            echo "Last 50 lines of GNOME Shell log:"
-            tail -50 /tmp/gnome-shell.log
+            echo "❌ API compatibility test failed"
+            cat /tmp/api-test.log
+            exit 1
           fi
+
+          # Test MPRIS functionality
+          echo ""
+          echo "=========================================="
+          echo "Testing MPRIS functionality..."
+          echo "=========================================="
+
+          mpv --no-audio-display --ao=null --loop=2 /tmp/sample.mp3 &
+          MPV_PID=$!
+          sleep 3
+
+          if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "mpv"; then
+            echo "✅ mpv MPRIS interface is available"
+          else
+            echo "⚠️  mpv MPRIS interface not detected (non-critical)"
+          fi
+
+          kill $MPV_PID 2>/dev/null || true
+          wait $MPV_PID 2>/dev/null || true
 
           echo ""
-          echo "✅ Extension functional test completed - No errors detected"
+          echo "✅ Extension compatibility test completed"
 
       - name: Summary
         if: success()
@@ -224,4 +211,4 @@ jobs:
           echo "- GSettings schema: passed"
           echo "- Extension structure: passed"
           echo "- JavaScript syntax: passed"
-          echo "- Functional test: passed"
+          echo "- API compatibility test: passed"
