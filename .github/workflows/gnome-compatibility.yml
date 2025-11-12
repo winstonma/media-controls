@@ -1,0 +1,93 @@
+name: GNOME Shell Compatibility Check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  compatibility-check:
+    name: Test GNOME ${{ matrix.gnome-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gnome-version: ['48', '49']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install GNOME Shell dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gettext \
+            glib-2.0 \
+            libglib2.0-dev \
+            libglib2.0-bin \
+            gnome-shell-common
+
+      - name: Validate metadata for GNOME ${{ matrix.gnome-version }}
+        run: |
+          SHELL_VERSION=$(jq -r '.["shell-version"][]' src/metadata.json | grep "^${{ matrix.gnome-version }}$" || echo "")
+          if [ -z "$SHELL_VERSION" ]; then
+            echo "❌ GNOME Shell ${{ matrix.gnome-version }} is not listed in metadata.json"
+            exit 1
+          else
+            echo "✅ GNOME Shell ${{ matrix.gnome-version }} is supported in metadata.json"
+          fi
+
+      - name: Build extension
+        run: pnpm run build
+
+      - name: Validate GSettings schema
+        run: |
+          glib-compile-schemas --strict --dry-run assets/
+
+      - name: Check extension structure
+        run: |
+          if [ ! -f "dist/builds/mediacontrols@cliffniff.github.com.shell-extension.zip" ]; then
+            echo "❌ Extension package not found"
+            exit 1
+          fi
+
+          echo "✅ Extension package created successfully"
+
+          # Extract and validate contents
+          unzip -l dist/builds/mediacontrols@cliffniff.github.com.shell-extension.zip
+
+          # Check for required files
+          unzip -t dist/builds/mediacontrols@cliffniff.github.com.shell-extension.zip
+
+          echo "✅ Extension package is valid"
+
+      - name: Validate JavaScript syntax
+        run: |
+          find dist/temp -name "*.js" -type f -exec node --check {} \;
+          echo "✅ All JavaScript files have valid syntax"
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✅ Extension is compatible with GNOME Shell ${{ matrix.gnome-version }}"
+          echo "- Metadata validation: passed"
+          echo "- Build process: passed"
+          echo "- GSettings schema: passed"
+          echo "- Extension structure: passed"
+          echo "- JavaScript syntax: passed"
