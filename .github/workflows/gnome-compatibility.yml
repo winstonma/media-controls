@@ -18,9 +18,9 @@ jobs:
       matrix:
         include:
           - gnome-version: '48'
-            container: 'fedora:41'
+            container: 'fedora:42'
           - gnome-version: '49'
-            container: 'fedora:rawhide'
+            container: 'fedora:43'
 
     steps:
       - name: Checkout code
