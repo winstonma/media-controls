@@ -99,7 +99,9 @@ jobs:
             dbus-x11 \
             xorg-x11-server-Xvfb \
             mesa-dri-drivers \
-            wget
+            wget \
+            mutter \
+            gnome-shell-extension-common
 
       - name: Download sample audio file
         run: |
@@ -187,7 +189,21 @@ jobs:
           EXIT_CODE=$?
           set -e
 
-          if [ $EXIT_CODE -eq 0 ]; then
+          # Check if there were any fatal errors in the log
+          if grep -q "Fatal error" /tmp/api-test.log; then
+            echo "❌ API compatibility test failed - Fatal error detected"
+            cat /tmp/api-test.log
+            exit 1
+          fi
+
+          # Check if ClickGesture is NOT available
+          if grep -q "ClickGesture is NOT available" /tmp/api-test.log; then
+            echo "❌ API compatibility test failed - ClickGesture not available"
+            cat /tmp/api-test.log
+            exit 1
+          fi
+
+          if [ $EXIT_CODE -eq 0 ] && grep -q "All required APIs are available" /tmp/api-test.log; then
             echo "✅ API compatibility test passed"
           else
             echo "❌ API compatibility test failed with exit code $EXIT_CODE"
