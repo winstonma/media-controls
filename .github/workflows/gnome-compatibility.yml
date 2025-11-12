@@ -30,9 +30,6 @@ jobs:
         with:
           version: 9
 
-      - name: Install dependencies
-        run: pnpm install
-
       - name: Install GNOME Shell dependencies
         run: |
           sudo apt-get update
@@ -41,7 +38,11 @@ jobs:
             glib-2.0 \
             libglib2.0-dev \
             libglib2.0-bin \
-            gnome-shell-common
+            gnome-shell-common \
+            gnome-shell
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
 
       - name: Validate metadata for GNOME ${{ matrix.gnome-version }}
         run: |
