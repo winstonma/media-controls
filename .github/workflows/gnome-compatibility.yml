@@ -20,7 +20,7 @@ jobs:
           - gnome-version: '48'
             container: 'fedora:42'
           - gnome-version: '49'
-            container: 'fedora:43'
+            container: 'ghcr.io/schneegans/gnome-shell-pod-rawhide:latest'
 
     steps:
       - name: Checkout code
