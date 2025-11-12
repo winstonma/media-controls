@@ -41,7 +41,7 @@ jobs:
             git
 
       - name: Install pnpm (in container)
-        run: npm install -g pnpm@9
+        run: npm install -g pnpm@latest
 
       - name: Install dependencies
         run: pnpm install --ignore-scripts
