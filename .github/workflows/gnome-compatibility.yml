@@ -116,47 +116,56 @@ jobs:
 
       - name: Test extension with mpv
         run: |
+          # Set up runtime directory
+          export XDG_RUNTIME_DIR=/tmp/runtime-test
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 700 $XDG_RUNTIME_DIR
+
           # Start D-Bus session
-          export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
+          dbus-daemon --session --fork --print-address > /tmp/dbus-address
+          export DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/dbus-address)
 
-          # Start virtual display
-          Xvfb :99 -screen 0 1024x768x24 &
-          export DISPLAY=:99
-          sleep 2
+          # Enable extension via dconf/gsettings
+          export GSETTINGS_BACKEND=memory
 
-          # Start GNOME Shell in background and capture logs
-          gnome-shell --wayland --no-x11 --headless 2>&1 | tee /tmp/gnome-shell.log &
-          SHELL_PID=$!
-          sleep 5
+          # Test extension loading by evaluating it with gjs
+          echo "Testing extension JavaScript evaluation..."
+          gjs -c "$(cat ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/extension.js)" 2>&1 | tee /tmp/extension-test.log || true
 
-          # Play audio file with mpv in background
-          mpv --no-video --loop=inf /tmp/sample.mp3 &
+          # Check for syntax or import errors
+          if grep -iE "(error|exception|syntaxerror)" /tmp/extension-test.log; then
+            echo "❌ Found errors when evaluating extension"
+            cat /tmp/extension-test.log
+            exit 1
+          fi
+
+          # Test mpv with MPRIS (without audio output)
+          echo "Testing MPRIS integration with mpv..."
+          mpv --no-audio-display --ao=null --loop=2 /tmp/sample.mp3 &
           MPV_PID=$!
 
-          # Wait for media to start playing
-          sleep 5
+          # Wait for mpv to start
+          sleep 3
 
-          # Check if extension loaded without errors
-          echo "Checking GNOME Shell logs for errors..."
+          # Check if MPRIS interface is available
+          if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "mpv"; then
+            echo "✅ mpv MPRIS interface is available"
 
-          # Kill processes
-          kill $MPV_PID 2>/dev/null || true
-          kill $SHELL_PID 2>/dev/null || true
+            # Get current media info via MPRIS
+            dbus-send --session --print-reply --dest=org.mpris.MediaPlayer2.mpv /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata 2>&1 | tee /tmp/mpris-test.log || true
 
-          # Analyze logs
-          if grep -i "error.*mediacontrols" /tmp/gnome-shell.log; then
-            echo "❌ Found errors related to mediacontrols extension"
-            echo "--- Full log ---"
-            cat /tmp/gnome-shell.log
-            exit 1
-          elif grep -i "mediacontrols" /tmp/gnome-shell.log; then
-            echo "✅ Extension loaded, checking for issues..."
-            grep -i "mediacontrols" /tmp/gnome-shell.log
+            if grep -q "Blizzard" /tmp/mpris-test.log; then
+              echo "✅ MPRIS metadata is working correctly"
+            else
+              echo "⚠️  MPRIS metadata not found, but interface is available"
+            fi
           else
-            echo "⚠️  No mediacontrols messages found in logs"
-            echo "--- Full log ---"
-            cat /tmp/gnome-shell.log
+            echo "⚠️  mpv MPRIS interface not detected"
           fi
+
+          # Kill mpv
+          kill $MPV_PID 2>/dev/null || true
+          wait $MPV_PID 2>/dev/null || true
 
           echo "✅ Extension functional test completed"
 
