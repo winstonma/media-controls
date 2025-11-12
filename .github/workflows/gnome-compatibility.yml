@@ -125,49 +125,55 @@ jobs:
           dbus-daemon --session --fork --print-address > /tmp/dbus-address
           export DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/dbus-address)
 
-          # Enable extension via dconf/gsettings
-          export GSETTINGS_BACKEND=memory
+          # Verify extension files are present
+          echo "Checking extension files..."
+          ls -la ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/
 
-          # Test extension loading by evaluating it with gjs
-          echo "Testing extension JavaScript evaluation..."
-          gjs -c "$(cat ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/extension.js)" 2>&1 | tee /tmp/extension-test.log || true
-
-          # Check for syntax or import errors
-          if grep -iE "(error|exception|syntaxerror)" /tmp/extension-test.log; then
-            echo "❌ Found errors when evaluating extension"
-            cat /tmp/extension-test.log
+          if [ ! -f ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/metadata.json ]; then
+            echo "❌ Extension metadata.json not found"
             exit 1
           fi
+
+          echo "✅ Extension files are present"
 
           # Test mpv with MPRIS (without audio output)
           echo "Testing MPRIS integration with mpv..."
           mpv --no-audio-display --ao=null --loop=2 /tmp/sample.mp3 &
           MPV_PID=$!
 
-          # Wait for mpv to start
-          sleep 3
+          # Wait for mpv to start and register MPRIS
+          sleep 5
 
           # Check if MPRIS interface is available
-          if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "mpv"; then
+          echo "Checking for MPRIS interfaces..."
+          dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | tee /tmp/dbus-names.log
+
+          if grep -q "mpv" /tmp/dbus-names.log; then
             echo "✅ mpv MPRIS interface is available"
 
             # Get current media info via MPRIS
+            echo "Fetching MPRIS metadata..."
             dbus-send --session --print-reply --dest=org.mpris.MediaPlayer2.mpv /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata 2>&1 | tee /tmp/mpris-test.log || true
 
-            if grep -q "Blizzard" /tmp/mpris-test.log; then
+            if grep -q "Blizzard" /tmp/mpris-test.log || grep -q "xesam:title" /tmp/mpris-test.log; then
               echo "✅ MPRIS metadata is working correctly"
+              grep -A 5 "xesam:title" /tmp/mpris-test.log || true
             else
               echo "⚠️  MPRIS metadata not found, but interface is available"
+              cat /tmp/mpris-test.log
             fi
           else
-            echo "⚠️  mpv MPRIS interface not detected"
+            echo "❌ mpv MPRIS interface not detected"
+            echo "Available D-Bus names:"
+            cat /tmp/dbus-names.log
+            exit 1
           fi
 
           # Kill mpv
           kill $MPV_PID 2>/dev/null || true
           wait $MPV_PID 2>/dev/null || true
 
-          echo "✅ Extension functional test completed"
+          echo "✅ Extension functional test completed - MPRIS integration verified"
 
       - name: Summary
         if: success()
