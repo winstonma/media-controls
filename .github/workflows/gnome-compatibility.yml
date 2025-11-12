@@ -98,17 +98,19 @@ jobs:
             mpv-mpris \
             dbus-x11 \
             xorg-x11-server-Xvfb \
-            mesa-dri-drivers \
             wget \
             clutter \
             gobject-introspection-devel \
-            gnome-shell-devel \
-            gjs-devel
+            gjs-devel \
+            mutter
 
           # Verify typelibs are available
           echo "Checking for typelib files..."
-          ls -la /usr/lib*/girepository-1.0/*Clutter*.typelib 2>/dev/null || echo "No Clutter typelib found"
-          ls -la /usr/lib*/girepository-1.0/*St*.typelib 2>/dev/null || echo "No St typelib found"
+          ls -la /usr/lib*/girepository-1.0/ | grep -E "(Clutter|St|Meta)" || echo "Checking typelib directory"
+
+          # Set GI_TYPELIB_PATH if needed
+          export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0
+          echo "GI_TYPELIB_PATH set to: $GI_TYPELIB_PATH"
 
       - name: Download sample audio file
         run: |
@@ -129,6 +131,9 @@ jobs:
           export XDG_RUNTIME_DIR=/tmp/runtime-test
           mkdir -p $XDG_RUNTIME_DIR
           chmod 700 $XDG_RUNTIME_DIR
+
+          # Set GI_TYPELIB_PATH
+          export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0
 
           # Start D-Bus session
           dbus-daemon --session --fork --print-address > /tmp/dbus-address
