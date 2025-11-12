@@ -157,26 +157,53 @@ jobs:
             echo 'Checking for runtime errors in GNOME ${{ matrix.gnome-version }}...'
             echo '=========================================='
 
-            # Check journalctl for errors
-            echo 'Checking journalctl for errors...'
-            ERRORS=\$(journalctl --since '5 minutes ago' --no-pager | grep -i 'error\|exception\|failed' | grep -i 'gnome-shell\|mediacontrols' || true)
+            # Check GNOME Shell logs specifically
+            echo 'Checking GNOME Shell logs...'
+            SHELL_LOGS=\$(journalctl -o cat /usr/bin/gnome-shell --since '5 minutes ago' --no-pager 2>/dev/null || true)
 
-            if [ -n \"\$ERRORS\" ]; then
-              echo '⚠️ Found potential errors in logs:'
-              echo \"\$ERRORS\"
+            if [ -n \"\$SHELL_LOGS\" ]; then
+              echo '=== GNOME Shell Journal Logs ==='
+              echo \"\$SHELL_LOGS\"
+              echo ''
+
+              # Check for Media Controls extension errors
+              EXTENSION_ERRORS=\$(echo \"\$SHELL_LOGS\" | grep -E '\[Media Controls\].*Error:' || true)
+
+              if [ -n \"\$EXTENSION_ERRORS\" ]; then
+                echo '❌ Found errors in Media Controls extension:'
+                echo \"\$EXTENSION_ERRORS\"
+                echo ''
+
+                # Check for specific error patterns
+                if echo \"\$EXTENSION_ERRORS\" | grep -q 'ClickGesture.*not a constructor'; then
+                  echo '❌ CRITICAL: ClickGesture compatibility issue detected'
+                  echo 'This error occurs because Clutter.ClickGesture is not available in GNOME ${{ matrix.gnome-version }}'
+                  exit 1
+                fi
+
+                if echo \"\$EXTENSION_ERRORS\" | grep -q 'TypeError\|ReferenceError\|SyntaxError'; then
+                  echo '❌ CRITICAL: JavaScript runtime error detected'
+                  exit 1
+                fi
+
+                # Non-critical errors, just warn
+                echo '⚠️ Extension has errors but continuing...'
+              else
+                echo '✅ No extension errors found in GNOME Shell logs'
+              fi
             else
-              echo '✅ No errors found in journalctl'
+              echo '⚠️ No GNOME Shell logs available yet'
             fi
 
-            # Check for specific known issues
+            # Additional check for GNOME 48 specific issues
             if [ '${{ matrix.gnome-version }}' = '48' ]; then
               echo ''
-              echo 'Checking for GNOME 48 specific issues...'
-              if journalctl --since '5 minutes ago' --no-pager | grep -i 'ClickGesture.*not a constructor'; then
-                echo '❌ Found ClickGesture compatibility issue'
+              echo 'Checking for GNOME 48 specific compatibility issues...'
+              if echo \"\$SHELL_LOGS\" | grep -q 'ClickGesture'; then
+                echo '❌ Found ClickGesture usage in GNOME 48 (not supported)'
                 exit 1
               else
-                echo '✅ No ClickGesture issues found'
+                echo '✅ No GNOME 48 specific issues found'
               fi
             fi
 
