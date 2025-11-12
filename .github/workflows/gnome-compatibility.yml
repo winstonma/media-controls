@@ -90,7 +90,7 @@ jobs:
             mpv \
             mpv-mpris \
             dbus-x11 \
-            systemd \
+            xorg-x11-server-Xvfb \
             wget
 
       - name: Download sample audio file
@@ -116,48 +116,71 @@ jobs:
           dbus-daemon --session --fork --print-address > /tmp/dbus-address
           export DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/dbus-address)
 
-          # Start journald
-          systemd-journald &
-          JOURNALD_PID=$!
+          # Start virtual display
+          Xvfb :99 -screen 0 1024x768x24 &
+          XVFB_PID=$!
+          export DISPLAY=:99
           sleep 2
 
-          # Simulate extension loading by evaluating it
-          echo "Testing extension evaluation..."
-          cd ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
+          # Start GNOME Shell and capture all output
+          echo "Starting GNOME Shell with extension..."
+          timeout 20s gnome-shell --x11 --replace 2>&1 | tee /tmp/gnome-shell.log &
+          SHELL_PID=$!
+          sleep 8
 
-          # Start mpv with MPRIS
+          # Start mpv with MPRIS to trigger extension
+          echo "Starting mpv to trigger extension..."
           mpv --no-audio-display --ao=null --loop=inf /tmp/sample.mp3 &
           MPV_PID=$!
-          sleep 5
+          sleep 8
 
-          # Check journalctl for errors
+          # Kill processes
+          kill $MPV_PID 2>/dev/null || true
+          kill $SHELL_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+          wait $SHELL_PID 2>/dev/null || true
+
+          # Analyze GNOME Shell output for extension errors
           echo ""
           echo "=========================================="
-          echo "Checking logs for extension errors..."
+          echo "Analyzing GNOME Shell output for errors..."
           echo "=========================================="
 
-          # Check system journal
-          journalctl --no-pager -n 100 | grep -i "mediacontrols\|gnome-shell.*error" > /tmp/journal.log || echo "No journal entries"
-
-          if [ -s /tmp/journal.log ]; then
-            echo "Found log entries:"
-            cat /tmp/journal.log
-
-            if grep -iE "error.*mediacontrols|mediacontrols.*error|typeerror|is not a constructor" /tmp/journal.log; then
-              echo ""
-              echo "❌ Found errors related to mediacontrols extension"
-              exit 1
-            fi
-          else
-            echo "⚠️  No specific extension logs found (expected in container environment)"
+          # Look for mediacontrols-specific errors
+          if grep -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log; then
+            echo ""
+            echo "❌ Found 'Media Controls' errors in output:"
+            grep -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log
+            echo ""
+            echo "Context:"
+            grep -A 5 -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log
+            exit 1
           fi
 
-          # Cleanup
-          kill $MPV_PID 2>/dev/null || true
-          kill $JOURNALD_PID 2>/dev/null || true
+          # Look for JavaScript errors in mediacontrols extension
+          if grep -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log; then
+            echo ""
+            echo "❌ Found JavaScript errors in mediacontrols extension:"
+            grep -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
+            echo ""
+            echo "Full context:"
+            grep -B 2 -A 10 -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
+            exit 1
+          fi
+
+          # Check if extension loaded at all
+          if grep -i "mediacontrols" /tmp/gnome-shell.log; then
+            echo "✅ Extension messages found in output"
+            echo "Sample messages:"
+            grep -i "mediacontrols" /tmp/gnome-shell.log | head -10
+          else
+            echo "⚠️  No extension messages found (may not have loaded)"
+            echo "Last 30 lines of GNOME Shell output:"
+            tail -30 /tmp/gnome-shell.log
+          fi
 
           echo ""
-          echo "✅ Extension test completed - No errors detected"
+          echo "✅ No errors detected in extension"
 
       - name: Summary
         if: success()
