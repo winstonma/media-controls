@@ -141,13 +141,20 @@ jobs:
           export GSETTINGS_BACKEND=keyfile
           export GSETTINGS_SCHEMA_DIR=~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/schemas
 
+          # Start virtual display
+          echo "Starting virtual display..."
+          Xvfb :99 -screen 0 1024x768x24 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          sleep 2
+
           # Start GNOME Shell in nested mode with extension enabled
           echo "Starting GNOME Shell with extension..."
           export MUTTER_DEBUG_DUMMY_MODE_SPECS=1024x768
           export SHELL_DEBUG=all
 
           # Start GNOME Shell and capture output
-          timeout 30s gnome-shell --nested --wayland 2>&1 | tee /tmp/gnome-shell.log &
+          timeout 30s gnome-shell --x11 2>&1 | tee /tmp/gnome-shell.log &
           SHELL_PID=$!
 
           # Wait for shell to start
@@ -164,6 +171,7 @@ jobs:
           # Kill processes
           kill $MPV_PID 2>/dev/null || true
           kill $SHELL_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
           wait $SHELL_PID 2>/dev/null || true
 
           # Analyze GNOME Shell logs for extension errors
