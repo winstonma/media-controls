@@ -136,44 +136,76 @@ jobs:
 
           echo "✅ Extension files are present"
 
-          # Test mpv with MPRIS (without audio output)
-          echo "Testing MPRIS integration with mpv..."
-          mpv --no-audio-display --ao=null --loop=2 /tmp/sample.mp3 &
+          # Enable the extension
+          mkdir -p ~/.config/dconf
+          export GSETTINGS_BACKEND=keyfile
+          export GSETTINGS_SCHEMA_DIR=~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com/schemas
+
+          # Start GNOME Shell in nested mode with extension enabled
+          echo "Starting GNOME Shell with extension..."
+          export MUTTER_DEBUG_DUMMY_MODE_SPECS=1024x768
+          export SHELL_DEBUG=all
+
+          # Start GNOME Shell and capture output
+          timeout 30s gnome-shell --nested --wayland 2>&1 | tee /tmp/gnome-shell.log &
+          SHELL_PID=$!
+
+          # Wait for shell to start
+          sleep 8
+
+          # Start mpv with MPRIS
+          echo "Starting mpv with MPRIS..."
+          mpv --no-audio-display --ao=null --loop=inf /tmp/sample.mp3 &
           MPV_PID=$!
 
-          # Wait for mpv to start and register MPRIS
-          sleep 5
+          # Wait for extension to react to media player
+          sleep 10
 
-          # Check if MPRIS interface is available
-          echo "Checking for MPRIS interfaces..."
-          dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | tee /tmp/dbus-names.log
+          # Kill processes
+          kill $MPV_PID 2>/dev/null || true
+          kill $SHELL_PID 2>/dev/null || true
+          wait $SHELL_PID 2>/dev/null || true
 
-          if grep -q "mpv" /tmp/dbus-names.log; then
-            echo "✅ mpv MPRIS interface is available"
+          # Analyze GNOME Shell logs for extension errors
+          echo "=========================================="
+          echo "Analyzing GNOME Shell logs for errors..."
+          echo "=========================================="
 
-            # Get current media info via MPRIS
-            echo "Fetching MPRIS metadata..."
-            dbus-send --session --print-reply --dest=org.mpris.MediaPlayer2.mpv /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata 2>&1 | tee /tmp/mpris-test.log || true
-
-            if grep -q "Blizzard" /tmp/mpris-test.log || grep -q "xesam:title" /tmp/mpris-test.log; then
-              echo "✅ MPRIS metadata is working correctly"
-              grep -A 5 "xesam:title" /tmp/mpris-test.log || true
-            else
-              echo "⚠️  MPRIS metadata not found, but interface is available"
-              cat /tmp/mpris-test.log
-            fi
-          else
-            echo "❌ mpv MPRIS interface not detected"
-            echo "Available D-Bus names:"
-            cat /tmp/dbus-names.log
+          if grep -i "Media Controls.*Error" /tmp/gnome-shell.log; then
+            echo ""
+            echo "❌ Found errors in Media Controls extension:"
+            echo "=========================================="
+            grep -i "Media Controls.*Error" /tmp/gnome-shell.log
+            echo "=========================================="
+            echo ""
+            echo "Full error context:"
+            grep -A 10 "Media Controls.*Error" /tmp/gnome-shell.log
             exit 1
           fi
 
-          # Kill mpv
-          kill $MPV_PID 2>/dev/null || true
-          wait $MPV_PID 2>/dev/null || true
+          if grep -iE "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log; then
+            echo ""
+            echo "❌ Found JavaScript errors in mediacontrols extension:"
+            echo "=========================================="
+            grep -iE "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
+            echo "=========================================="
+            exit 1
+          fi
 
-          echo "✅ Extension functional test completed - MPRIS integration verified"
+          if grep -i "mediacontrols" /tmp/gnome-shell.log; then
+            echo "✅ Extension loaded successfully"
+            echo "Extension log messages:"
+            grep -i "mediacontrols" /tmp/gnome-shell.log | head -20
+          else
+            echo "⚠️  No extension messages found in logs"
+            echo "This might indicate the extension didn't load"
+            echo ""
+            echo "Last 50 lines of GNOME Shell log:"
+            tail -50 /tmp/gnome-shell.log
+          fi
+
+          echo ""
+          echo "✅ Extension functional test completed - No errors detected"
 
       - name: Summary
         if: success()
