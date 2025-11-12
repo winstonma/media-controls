@@ -127,44 +127,54 @@ jobs:
 
           # Create a test script to check for API availability
           cat > /tmp/test-extension-apis.js << 'EOF'
-          imports.gi.versions.Clutter = '13';
-          imports.gi.versions.St = '13';
-          const { Clutter, St, GObject } = imports.gi;
-
-          print('Testing GNOME Shell API compatibility...');
-          print('Clutter version: ' + Clutter.get_default_backend().get_name());
-
-          // Test ClickGesture availability (issue in GNOME 48)
           try {
+            const { Clutter, St, GObject } = imports.gi;
+
+            print('Testing GNOME Shell API compatibility...');
+
+            // Test ClickGesture availability (issue in GNOME 48)
             if (typeof Clutter.ClickGesture !== 'undefined') {
-              const gesture = new Clutter.ClickGesture();
-              print('✅ Clutter.ClickGesture is available');
+              try {
+                const gesture = new Clutter.ClickGesture();
+                print('✅ Clutter.ClickGesture is available and can be instantiated');
+              } catch (e) {
+                print('❌ Clutter.ClickGesture exists but cannot be instantiated: ' + e.message);
+                imports.system.exit(1);
+              }
             } else {
               print('❌ Clutter.ClickGesture is NOT available');
+              print('This will cause errors in PanelButton.js line 856');
               imports.system.exit(1);
             }
-          } catch (e) {
-            print('❌ Error creating Clutter.ClickGesture: ' + e.message);
-            imports.system.exit(1);
-          }
 
-          // Test other commonly used APIs
-          try {
+            // Test other commonly used APIs
             if (typeof St.Icon !== 'undefined') {
               print('✅ St.Icon is available');
+            } else {
+              print('❌ St.Icon is NOT available');
+              imports.system.exit(1);
             }
+
             if (typeof St.Button !== 'undefined') {
               print('✅ St.Button is available');
+            } else {
+              print('❌ St.Button is NOT available');
+              imports.system.exit(1);
             }
+
             if (typeof St.BoxLayout !== 'undefined') {
               print('✅ St.BoxLayout is available');
+            } else {
+              print('❌ St.BoxLayout is NOT available');
+              imports.system.exit(1);
             }
+
+            print('✅ All required APIs are available');
           } catch (e) {
-            print('❌ Error testing St APIs: ' + e.message);
+            print('❌ Fatal error loading GNOME Shell APIs: ' + e.message);
+            print('Stack trace: ' + e.stack);
             imports.system.exit(1);
           }
-
-          print('✅ All required APIs are available');
           EOF
 
           # Run the API compatibility test
@@ -172,10 +182,16 @@ jobs:
           echo "Testing API compatibility..."
           echo "=========================================="
 
-          if gjs /tmp/test-extension-apis.js 2>&1 | tee /tmp/api-test.log; then
+          set +e
+          gjs /tmp/test-extension-apis.js 2>&1 | tee /tmp/api-test.log
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
             echo "✅ API compatibility test passed"
           else
-            echo "❌ API compatibility test failed"
+            echo "❌ API compatibility test failed with exit code $EXIT_CODE"
+            echo "Full log:"
             cat /tmp/api-test.log
             exit 1
           fi
