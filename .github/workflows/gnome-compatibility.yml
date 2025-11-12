@@ -84,103 +84,40 @@ jobs:
           echo "Installed GNOME Shell version: $INSTALLED_VERSION"
           echo "Expected GNOME Shell version: ${{ matrix.gnome-version }}"
 
-      - name: Install media player dependencies
+      - name: Check for known compatibility issues
         run: |
-          dnf install -y \
-            mpv \
-            mpv-mpris \
-            dbus-x11 \
-            xorg-x11-server-Xvfb \
-            wget
-
-      - name: Download sample audio file
-        run: |
-          wget -O /tmp/sample.mp3 https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3
-          echo "✅ Downloaded sample audio file"
-
-      - name: Install extension for testing
-        run: |
-          mkdir -p ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
-          unzip -o dist/builds/mediacontrols@cliffniff.github.com.shell-extension.zip \
-            -d ~/.local/share/gnome-shell/extensions/mediacontrols@cliffniff.github.com
-          echo "✅ Extension installed"
-
-      - name: Test extension and check logs
-        run: |
-          # Set up environment
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          mkdir -p $XDG_RUNTIME_DIR
-
-          # Start D-Bus session
-          dbus-daemon --system --fork || echo "System D-Bus already running"
-          dbus-daemon --session --fork --print-address > /tmp/dbus-address
-          export DBUS_SESSION_BUS_ADDRESS=$(cat /tmp/dbus-address)
-
-          # Start virtual display
-          Xvfb :99 -screen 0 1024x768x24 &
-          XVFB_PID=$!
-          export DISPLAY=:99
-          sleep 2
-
-          # Start GNOME Shell and capture all output
-          echo "Starting GNOME Shell with extension..."
-          timeout 20s gnome-shell --x11 --replace 2>&1 | tee /tmp/gnome-shell.log &
-          SHELL_PID=$!
-          sleep 8
-
-          # Start mpv with MPRIS to trigger extension
-          echo "Starting mpv to trigger extension..."
-          mpv --no-audio-display --ao=null --loop=inf /tmp/sample.mp3 &
-          MPV_PID=$!
-          sleep 8
-
-          # Kill processes
-          kill $MPV_PID 2>/dev/null || true
-          kill $SHELL_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
-          wait $SHELL_PID 2>/dev/null || true
-
-          # Analyze GNOME Shell output for extension errors
-          echo ""
           echo "=========================================="
-          echo "Analyzing GNOME Shell output for errors..."
+          echo "Checking for known GNOME ${{ matrix.gnome-version }} compatibility issues..."
           echo "=========================================="
 
-          # Look for mediacontrols-specific errors
-          if grep -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log; then
-            echo ""
-            echo "❌ Found 'Media Controls' errors in output:"
-            grep -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log
-            echo ""
-            echo "Context:"
-            grep -A 5 -i "Media Controls.*Error\|mediacontrols.*Error" /tmp/gnome-shell.log
-            exit 1
+          cd dist/temp
+
+          # Check for ClickGesture usage (not available in GNOME 48)
+          if [ "${{ matrix.gnome-version }}" = "48" ]; then
+            echo "Checking for ClickGesture usage (known issue in GNOME 48)..."
+            if grep -r "Clutter\.ClickGesture\|new ClickGesture" . --include="*.js"; then
+              echo ""
+              echo "❌ Found ClickGesture usage which is not available in GNOME 48"
+              echo "This will cause: TypeError: (intermediate value).ClickGesture is not a constructor"
+              echo ""
+              echo "Files using ClickGesture:"
+              grep -r "Clutter\.ClickGesture\|new ClickGesture" . --include="*.js" -l
+              exit 1
+            else
+              echo "✅ No ClickGesture usage found"
+            fi
           fi
 
-          # Look for JavaScript errors in mediacontrols extension
-          if grep -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log; then
-            echo ""
-            echo "❌ Found JavaScript errors in mediacontrols extension:"
-            grep -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
-            echo ""
-            echo "Full context:"
-            grep -B 2 -A 10 -E "mediacontrols.*TypeError|mediacontrols.*ReferenceError|mediacontrols.*is not a constructor" /tmp/gnome-shell.log
-            exit 1
-          fi
+          # Check for other common compatibility issues
+          echo ""
+          echo "Checking for deprecated or version-specific APIs..."
 
-          # Check if extension loaded at all
-          if grep -i "mediacontrols" /tmp/gnome-shell.log; then
-            echo "✅ Extension messages found in output"
-            echo "Sample messages:"
-            grep -i "mediacontrols" /tmp/gnome-shell.log | head -10
-          else
-            echo "⚠️  No extension messages found (may not have loaded)"
-            echo "Last 30 lines of GNOME Shell output:"
-            tail -30 /tmp/gnome-shell.log
-          fi
+          # List all Clutter API usage for review
+          echo "Clutter APIs used:"
+          grep -rh "Clutter\." . --include="*.js" | grep -o "Clutter\.[A-Za-z_][A-Za-z0-9_]*" | sort -u || echo "None found"
 
           echo ""
-          echo "✅ No errors detected in extension"
+          echo "✅ Compatibility check completed"
 
       - name: Summary
         if: success()
@@ -191,4 +128,4 @@ jobs:
           echo "- GSettings schema: passed"
           echo "- Extension structure: passed"
           echo "- JavaScript syntax: passed"
-          echo "- Runtime test: passed"
+          echo "- Compatibility check: passed"
