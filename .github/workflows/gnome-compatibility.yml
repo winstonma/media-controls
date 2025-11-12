@@ -106,11 +106,17 @@ jobs:
 
           # Verify typelibs are available
           echo "Checking for typelib files..."
-          ls -la /usr/lib*/girepository-1.0/ | grep -E "(Clutter|St|Meta)" || echo "Checking typelib directory"
+          find /usr -name "*.typelib" 2>/dev/null | grep -E "(Clutter|St|Meta|Shell)" || echo "Searching for typelibs"
 
-          # Set GI_TYPELIB_PATH if needed
-          export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0
-          echo "GI_TYPELIB_PATH set to: $GI_TYPELIB_PATH"
+          # Find and set GI_TYPELIB_PATH to include gnome-shell typelibs
+          GNOME_SHELL_TYPELIB=$(find /usr -name "St-*.typelib" 2>/dev/null | head -1 | xargs dirname)
+          if [ -n "$GNOME_SHELL_TYPELIB" ]; then
+            export GI_TYPELIB_PATH="$GNOME_SHELL_TYPELIB:/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0"
+            echo "GI_TYPELIB_PATH set to: $GI_TYPELIB_PATH"
+          else
+            export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0:/usr/lib64/gnome-shell
+            echo "GI_TYPELIB_PATH set to: $GI_TYPELIB_PATH (St typelib not found, using default paths)"
+          fi
 
       - name: Download sample audio file
         run: |
@@ -132,8 +138,14 @@ jobs:
           mkdir -p $XDG_RUNTIME_DIR
           chmod 700 $XDG_RUNTIME_DIR
 
-          # Set GI_TYPELIB_PATH
-          export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0
+          # Set GI_TYPELIB_PATH - find St typelib location
+          GNOME_SHELL_TYPELIB=$(find /usr -name "St-*.typelib" 2>/dev/null | head -1 | xargs dirname)
+          if [ -n "$GNOME_SHELL_TYPELIB" ]; then
+            export GI_TYPELIB_PATH="$GNOME_SHELL_TYPELIB:/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0"
+          else
+            export GI_TYPELIB_PATH=/usr/lib64/girepository-1.0:/usr/lib/girepository-1.0:/usr/lib64/gnome-shell
+          fi
+          echo "GI_TYPELIB_PATH: $GI_TYPELIB_PATH"
 
           # Start D-Bus session
           dbus-daemon --session --fork --print-address > /tmp/dbus-address
